@@ -2,7 +2,7 @@
 
 **ANU CITY 3D** is a high-performance, open-world action-survival game optimized for both PC and Mobile. Experience a gritty, atmospheric metropolis filled with danger, dynamic weather, and an elite arsenal of weapons.
 
-![Game Logo](./game_logo_anu_city.png)
+![Game Logo](https://github.com/anuragydv63/crime-city-open-world-/blob/main/game_logo_anu_city_1774769804432.png)
 
 ## 🚀 Key Features
 

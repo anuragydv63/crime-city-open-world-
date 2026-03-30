@@ -58,6 +58,7 @@
       <div id="healthBar"><div id="healthFill" style="width:100%"></div></div>
       <div class="hud-val" id="hpNum">100</div>
       <button class="m-btn-small" id="shopBtn" style="margin-top:10px;pointer-events:auto;">🛒 SHOP</button>
+      <button class="m-btn-small" id="settingsBtn" style="margin-top:10px;pointer-events:auto;margin-left:5px;">⚙️ SETTINGS</button>
     </div>
     <!-- ... Rest of HUD remains same ... -->
 
@@ -68,8 +69,8 @@
       <div class="hud-val" id="killNum">0</div>
     </div>
     <div class="hud-block" style="align-items:flex-end">
-      <div class="hud-label">INTEL</div>
-      <div class="hud-val" id="scoreNum">0</div>
+      <div class="hud-label" style="color:var(--yellow); opacity:0.8;">💰 CASH</div>
+      <div class="hud-val" id="scoreNum" style="color:var(--yellow); font-size:32px; text-shadow:0 0 20px rgba(255,255,0,0.5);">0</div>
       <div id="weaponDisplay">AUTO GUN</div>
       <div id="ammoBar"></div>
     </div>
@@ -124,35 +125,49 @@
       <button id="closeShop">✕</button>
     </div>
     <div id="itemGrid">
-      <div class="shop-item" onclick="buyItem('health')">
+      <div class="shop-item" data-type="health">
         <div class="item-icon">💉</div>
         <div class="item-name">ADRENALINE</div>
-        <div class="item-price">500</div>
+        <div class="item-price">💰 500</div>
       </div>
-      <div class="shop-item" onclick="buyItem('ammo')">
+      <div class="shop-item" data-type="ammo">
         <div class="item-icon">🎒</div>
         <div class="item-name">AMMO BOX</div>
-        <div class="item-price">300</div>
+        <div class="item-price">💰 300</div>
       </div>
-      <div class="shop-item" onclick="buyItem('grenade')">
+      <div class="shop-item" data-type="grenade">
         <div class="item-icon">💣</div>
         <div class="item-name">GRENADE PACK</div>
-        <div class="item-price">200</div>
+        <div class="item-price">💰 200</div>
       </div>
-      <div class="shop-item" onclick="buyItem('shield')">
+      <div class="shop-item" data-type="shield">
         <div class="item-icon">🛡️</div>
         <div class="item-name">STIM PACK (15s)</div>
-        <div class="item-price">1000</div>
+        <div class="item-price">💰 1000</div>
       </div>
-      <div class="shop-item" onclick="buyItem('rocket_launcher')">
+      <div class="shop-item" data-type="rocket_launcher">
         <div class="item-icon">🚀</div>
         <div class="item-name">RPG-7 (Rocket Launcher)</div>
-        <div class="item-price">2500</div>
+        <div class="item-price">💰 2500</div>
       </div>
-      <div class="shop-item" onclick="buyItem('rocket_ammo')">
+      <div class="shop-item" data-type="rocket_ammo">
         <div class="item-icon">🧨</div>
         <div class="item-name">ROCKET AMMO (x2)</div>
-        <div class="item-price">800</div>
+        <div class="item-price">💰 800</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS OVERLAY -->
+  <div id="settingsOverlay" style="display:none;">
+    <div id="settingsHeader" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #ff1111; padding-bottom:10px; margin-bottom:20px;">
+      <h2 style="font-family:'Bebas Neue'; color:#ff1111; font-size:32px;">SETTINGS</h2>
+      <button id="closeSettings" style="background:none; border:none; color:#ff1111; font-size:24px; cursor:pointer;">✕</button>
+    </div>
+    <div id="settingsBody" style="font-family:'Bebas Neue'; color:#fff; font-size:20px;">
+      <div class="settings-row" style="margin-bottom: 20px;">
+        <label>JOYSTICK SIZE</label>
+        <input type="range" id="joySizeSlider" min="0.5" max="1.5" step="0.1" value="1.0" style="width:100%; margin-top:10px;">
       </div>
     </div>
   </div>
@@ -175,6 +190,9 @@
   <div id="controls-hint" class="hide-mobile">
     WASD — MOVE | MOUSE — AIM & FIRE | Q — KNIFE | G — GRENADE | R — RELOAD | TAB — SWITCH | ESC — PAUSE | V — CAMERA
   </div>
+  <!-- WASTED Overlay -->
+  <div id="wastedText">WASTED</div>
+
 </div>
 
 <script src="game.js"></script>

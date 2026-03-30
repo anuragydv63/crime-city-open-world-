@@ -12,6 +12,7 @@
   --glass: rgba(15, 12, 10, 0.7);
   --yellow: #ffff00;
   --blue: #00ccff;
+  --joy-scale: 1.0;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -78,6 +79,8 @@ canvas { display: block; max-width: 100%; max-height: 100%; box-shadow: 0 0 100p
   display: flex; justify-content: space-between; align-items: flex-start;
   padding: 10px 15px; pointer-events: none; z-index: 40;
 }
+#hud .hud-block:first-child { margin-top: 150px; } /* Push health below map & grenades */
+
 
 .hud-block {
   display: flex; flex-direction: column; gap: 2px;
@@ -108,35 +111,40 @@ canvas { display: block; max-width: 100%; max-height: 100%; box-shadow: 0 0 100p
 }
 
 #mission-box {
-  position: absolute; top: 110px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 75px; left: 50%; transform: translateX(-50%);
   background: var(--glass); backdrop-filter: blur(10px);
-  padding: 10px 20px; border-radius: 12px; border: 1px dashed var(--accent);
+  padding: 6px 15px; border-radius: 10px; border: 1px dashed var(--accent);
   z-index: 40; pointer-events: none; text-align: center;
-  min-width: 280px; box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+  min-width: 200px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
 }
-#mission-label { font-family: 'Bebas Neue'; font-size: 10px; letter-spacing: 3px; color: var(--accent); margin-bottom: 3px; }
-#mission-text { font-family: 'Outfit'; font-size: 16px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 1px; }
+#mission-label { font-family: 'Bebas Neue'; font-size: 8px; letter-spacing: 2px; color: var(--accent); margin-bottom: 2px; }
+#mission-text { font-family: 'Outfit'; font-size: 13px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 1px; }
+
 
 #minimap {
   position: absolute;
-  bottom: 20px; right: 20px;
-  width: 140px; height: 140px;
+  top: 15px; left: 15px;
+  width: 90px; height: 90px;
   background: rgba(0,0,0,0.85);
-  border: 2px solid rgba(255,255,255,0.15);
-  border-radius: 12px;
+  border: 1.5px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
   overflow: hidden;
-  z-index: 1001; /* Higher for large view */
+  z-index: 1001;
   pointer-events: auto;
-  box-shadow: 0 0 20px rgba(0,0,0,0.8);
+  box-shadow: 0 0 15px rgba(0,0,0,0.8);
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   cursor: pointer;
 }
+
+
 #minimap.large {
-  width: min(80vw, 500px);
-  height: min(80vw, 500px);
-  bottom: 50%; right: 50%;
-  transform: translate(50%, 50%);
+  width: min(90vw, 400px);
+  height: min(90vw, 400px);
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
   border-color: var(--accent);
+  box-shadow: 0 0 40px rgba(255, 68, 0, 0.4);
+  z-index: 10001;
 }
 #minimapCanvas { width: 100%; height: 100%; }
 #minimapLabel {
@@ -154,7 +162,9 @@ canvas { display: block; max-width: 100%; max-height: 100%; box-shadow: 0 0 100p
 
 #grenadeBar {
   position: absolute;
-  bottom: 165px; right: 20px;
+  top: 115px; left: 15px;
+
+
   background: var(--glass); backdrop-filter: blur(8px);
   padding: 6px 10px; border-radius: 8px;
   border: 1px solid rgba(255,255,255,0.05);
@@ -166,15 +176,46 @@ canvas { display: block; max-width: 100%; max-height: 100%; box-shadow: 0 0 100p
 .gren-pip { width: 10px; height: 14px; background: #33ff66; border-radius: 2px; box-shadow: 0 0 6px #33ff66; }
 .gren-pip.empty { background: #222; box-shadow: none; }
 
-.joystick-container { position: absolute; bottom: 40px; width: 140px; height: 140px; z-index: 50; display: none; touch-action: none; }
+.joystick-container { 
+  position: absolute; bottom: 40px; width: 140px; height: 140px; 
+  z-index: 50; display: none; touch-action: none; 
+  transform: scale(var(--joy-scale)); transform-origin: bottom left;
+}
 #stick-move { left: 40px; }
-#stick-aim { right: 40px; }
+#stick-aim { display: none !important; }
+
 
 .stick-base { width: 100%; height: 100%; background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.1); border-radius: 50%; position: relative; display: flex; align-items: center; justify-content: center; }
 .stick-knob { width: 50px; height: 50px; background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; position: absolute; box-shadow: 0 0 15px rgba(255,255,255,0.1); }
 
-#mobile-buttons { position: absolute; bottom: 200px; right: 20px; display: none; flex-direction: column; gap: 15px; z-index: 50; }
-.m-btn { width: 60px; height: 60px; background: var(--glass); border: 1px solid rgba(255,255,255,0.2); border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-family: 'Special Elite', cursive; font-size: 18px; box-shadow: 0 0 15px rgba(0,0,0,0.5); }
+#mobile-buttons { 
+  position: absolute; bottom: 10px; right: 10px; 
+  display: none; width: 200px; height: 200px; 
+  z-index: 50; pointer-events: none;
+}
+.m-btn { 
+  position: absolute; width: 48px; height: 48px; 
+  background: var(--glass); border: 1.2px solid rgba(255,255,255,0.2); 
+  border-radius: 50%; color: #fff; display: flex; 
+  align-items: center; justify-content: center; 
+  font-family: 'Bebas Neue', sans-serif; font-size: 13px; 
+  box-shadow: 0 0 10px rgba(0,0,0,0.5); pointer-events: auto;
+}
+/* Ergonomic Arc Layout */
+#btn-jump   { bottom: 110px; right: 15px; width: 55px; height: 55px; border-color: var(--ammo); }
+#btn-sprint { bottom: 75px; right: 85px; }
+#btn-reload { bottom: 10px; right: 110px; }
+#btn-knife  { bottom: 120px; right: 90px; scale: 0.8; }
+#btn-gren   { bottom: 170px; right: 130px; scale: 0.8; }
+#btn-switch { bottom: 170px; right: 60px; scale: 0.8; }
+#btn-view   { top: 5px; right: -5px; scale: 0.7; opacity: 0.4; }
+
+#btn-drive { 
+  bottom: 0px; right: 170px; width: 60px; height: 35px; 
+  border-radius: 8px; font-weight: bold; background: var(--yellow); 
+  color: #000; border-color: #111; font-size: 11px;
+}
+
 
 #overlay {
   position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -196,6 +237,53 @@ canvas { display: block; max-width: 100%; max-height: 100%; box-shadow: 0 0 100p
 }
 #pauseOverlay h2 { font-family: 'Bebas Neue'; font-size: 60px; letter-spacing: 10px; color: #fff; }
 
+#wastedText {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.5);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 100px;
+  color: #ff0000;
+  letter-spacing: 20px;
+  text-shadow: 0 0 40px #ff0000, 2px 2px 0px #000;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 9999;
+  transition: all 2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+#wastedText.show {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+
+#settingsOverlay {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.85);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  z-index: 900;
+  padding: 20px;
+}
+#settingsHeader {
+  width: 100%; max-width: 400px;
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 2px solid var(--blood); padding-bottom: 10px; margin-bottom: 30px;
+}
+#settingsHeader h2 { font-family: 'Bebas Neue'; color: var(--blood); font-size: 40px; }
+#closeSettings { background: none; border: none; color: var(--blood); font-size: 30px; cursor: pointer; }
+#settingsBody {
+  width: 100%; max-width: 400px; font-family: 'Bebas Neue'; color: #fff; font-size: 24px;
+}
+.settings-row { margin-bottom: 25px; }
+input[type=range] {
+  -webkit-appearance: none; appearance: none; width: 100%; background: #222; height: 10px; border-radius: 5px; outline: none; margin-top: 15px;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 25px; height: 25px; border-radius: 50%; background: var(--blood); cursor: pointer;
+}
+
+
 #wantedStars {
   position: absolute; top: 120px; right: 20px;
   font-size: 32px; color: var(--yellow);
@@ -211,11 +299,16 @@ canvas { display: block; max-width: 100%; max-height: 100%; box-shadow: 0 0 100p
 }
 
 #shopOverlay {
-  position: absolute; inset: 0; background: rgba(0,0,0,0.9);
-  display: none; flex-direction: column; align-items: center; justify-content: center;
-  z-index: 1000; padding: 20px;
+  position: absolute; inset: 0; background: rgba(0,0,0,0.95);
+  display: none; flex-direction: column; align-items: center; 
+  z-index: 10000; padding: 20px; overflow-y: auto;
 }
-#shopHeader { width: 100%; max-width: 500px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
+#shopHeader { 
+  width: 100%; max-width: 500px; display: flex; justify-content: space-between; 
+  align-items: center; margin-bottom: 20px; border-bottom: 2px solid var(--accent); 
+  padding-bottom: 10px; position: sticky; top: 0; background: rgba(0,0,0,0.95); z-index: 10;
+}
+
 #shopHeader h2 { font-family: 'Bebas Neue'; font-size: 40px; color: var(--accent); letter-spacing: 4px; }
 #closeShop { background: none; border: none; color: #fff; font-size: 30px; cursor: pointer; }
 
@@ -234,12 +327,70 @@ canvas { display: block; max-width: 100%; max-height: 100%; box-shadow: 0 0 100p
 
 #crosshair {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: 24px; height: 24px; color: var(--green);
-  z-index: 50; pointer-events: none; opacity: 0.6;
+  width: 30px; height: 30px; color: var(--green);
+  z-index: 50; pointer-events: none; opacity: 0.8;
+  filter: drop-shadow(0 0 2px rgba(0,255,102,0.5));
 }
-#crosshair::before, #crosshair::after { content: ''; position: absolute; background: currentColor; }
-#crosshair::before { top: 0; left: 11px; width: 2px; height: 24px; }
-#crosshair::after { top: 11px; left: 0; width: 24px; height: 2px; }
+#crosshair::before { 
+  content: ''; position: absolute; top: 14px; left: 14px; 
+  width: 2px; height: 2px; background: #fff; 
+  border-radius: 50%; box-shadow: 0 0 4px #fff;
+}
+#crosshair::after { 
+  content: ''; position: absolute; inset: 0;
+  border: 1.5px solid currentColor;
+  clip-path: polygon(
+    0 0, 30% 0, 30% 5%, 5% 5%, 5% 30%, 0 30%,
+    0 70%, 5% 70%, 5% 95%, 30% 95%, 30% 100%, 0 100%,
+    70% 100%, 70% 95%, 95% 95%, 95% 70%, 100% 70%, 100% 100%,
+    100% 30%, 95% 30%, 95% 5%, 70% 5%, 70% 0, 100% 0
+  );
+}
 
 #controls-hint { position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; font-size: 11px; color: #543; letter-spacing: 2px; z-index: 40; }
 @media (max-width: 768px) { .hide-mobile { display: none; } }
+
+/* 📱 MOBILE LANDSCAPE OPTIMIZATION (Small Screens) */
+@media screen and (max-height: 500px) {
+  .hud-block { padding: 5px 10px; gap: 1px; }
+  .hud-val { font-size: 18px; }
+  .hud-label { font-size: 9px; }
+  #healthBar { width: 90px; height: 4px; }
+  #weaponDisplay { font-size: 14px; }
+  .ammo-pip { height: 8px; width: 3px; }
+  
+  #minimap { width: 75px; height: 75px; top: 10px; left: 10px; border-radius: 8px; }
+  #hud .hud-block:first-child { margin-top: 130px; max-width: 140px; padding: 4px 8px; }
+  #hud .hud-block:last-child { max-width: 120px; padding: 4px 8px; }
+  #grenadeBar { top: 90px; left: 10px; padding: 3px 6px; }
+  
+  #wantedStars { font-size: 18px; top: 110px; right: 15px; letter-spacing: 2px; }
+  #mobile-buttons { display: none; } /* Re-enabled by JS but layout fixed above */
+  
+  .joystick-container { width: 100px; height: 100px; bottom: 25px; }
+  #stick-move { left: 25px; }
+  #stick-aim { right: 25px; }
+  .stick-knob { width: 32px; height: 32px; }
+  
+  #mission-box { top: 60px; min-width: 160px; padding: 3px 8px; border-style: solid; opacity: 0.9; }
+  #mission-text { font-size: 10px; }
+  
+  .hud-val { font-size: 16px; }
+  #healthBar { width: 80px; height: 3px; }
+  #weaponDisplay { font-size: 12px; }
+  #ammoBar { max-width: 80px; }
+
+  .ov-title { font-size: 42px; }
+  .ov-sub { font-size: 9px; }
+  .btn { padding: 6px 20px; font-size: 16px; }
+
+  #shopHeader h2 { font-size: 24px; }
+  #closeShop { font-size: 24px; }
+  #itemGrid { grid-template-columns: 1fr 1fr; gap: 10px; max-width: 100%; }
+  .shop-item { padding: 10px; }
+  .item-icon { font-size: 24px; margin-bottom: 5px; }
+  .item-name { font-size: 12px; }
+  .item-price { font-size: 18px; }
+}
+
+

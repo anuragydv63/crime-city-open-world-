@@ -31,6 +31,11 @@ let gameInitialized = false;
 let worldTime = 0; // 0-24000 cycle
 let rainSystem = null;
 let isRainy = Math.random() > 0.7;
+let wetness = 0;
+let lightningTimer = 0;
+let shakeTime = 0;
+let shakeIntensity = 0;
+let bloodDecals = [];
 
 
 function init3D() {
@@ -45,7 +50,14 @@ function init3D() {
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
+    
+    // ⚡ MOBILE PERFORMANCE: Hardcap pixel ratio for 60FPS
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    renderer.setPixelRatio(isMobile ? Math.min(window.devicePixelRatio, 1.5) : window.devicePixelRatio);
+
+    
     document.getElementById('three-container').appendChild(renderer.domElement);
+
 
     clock = new THREE.Clock();
 
@@ -294,7 +306,7 @@ function createStreetLights() {
 }
 
 function createGrass() {
-    const geo = new THREE.BoxGeometry(10, 20, 10);
+    const geo = new THREE.BoxGeometry(10, 5, 10);
     const mat = new THREE.MeshPhongMaterial({ color: 0x228822 });
     const count = 2000;
     const mesh = new THREE.InstancedMesh(geo, mat, count);
@@ -306,9 +318,9 @@ function createGrass() {
         const gx = (Math.random()-0.5)*ARENA_SIZE;
         const gz = (Math.random()-0.5)*ARENA_SIZE;
         if(Math.abs(gx) < 260 || Math.abs(gz) < 260) continue;
-        if(checkBuildingCollision(gx, gz, 40)) continue;
+        if(checkWorldCollision(gx, gz, 40)) continue;
 
-        dummy.position.set(gx, 10, gz);
+        dummy.position.set(gx, 2.5, gz);
         dummy.rotation.y = Math.random()*Math.PI;
         dummy.updateMatrix();
         mesh.setMatrixAt(actualCount++, dummy.matrix);
@@ -331,7 +343,7 @@ function createTrees() {
         const tx = (Math.random()-0.5)*ARENA_SIZE;
         const tz = (Math.random()-0.5)*ARENA_SIZE;
         if(Math.abs(tx) < 300 || Math.abs(tz) < 300) continue;
-        if(checkBuildingCollision(tx, tz, 100)) continue;
+        if(checkWorldCollision(tx, tz, 100)) continue;
 
         // Trunk
         dummy.position.set(tx, 30, tz);
@@ -360,11 +372,30 @@ function updateEnvironment() {
     lights.ambient.intensity = isDay ? 1.5 : 0.3;
     
     // Update Fog & Background based on cycle
-    const colorDay = isRainy ? 0x222233 : 0x050510;
+    const colorDay = isRainy ? 0x111122 : 0x050510;
     const colorNight = 0x010105;
     const lerpColor = new THREE.Color(isDay ? colorDay : colorNight);
-    scene.background = lerpColor;
-    scene.fog.color = lerpColor;
+    
+    // ⚡ LIGHTNING FLASH SYSTEM
+    if (isRainy && !isDay && Math.random() < 0.003 && lightningTimer <= 0) {
+        lightningTimer = 5 + Math.random() * 15;
+    }
+    
+    if (lightningTimer > 0) {
+        lightningTimer--;
+        const flashVal = Math.random() > 0.5 ? 1 : 0.8;
+        scene.background = new THREE.Color(0x444466);
+        scene.fog.color = new THREE.Color(0x444466);
+        lights.ambient.intensity = 4 * flashVal;
+        lights.sun.intensity = 2 * flashVal;
+    } else {
+        scene.background = lerpColor;
+        scene.fog.color = lerpColor;
+    }
+
+    // Dynamic Fog Density (Heavy rain = thicker fog)
+    const targetFog = isRainy ? 0.0012 : 0.0006;
+    scene.fog.density += (targetFog - scene.fog.density) * 0.01;
 
     // Rain Logic: Move particles 
     if(rainSystem && isRainy) {
@@ -372,14 +403,26 @@ function updateEnvironment() {
         const pos = rainSystem.geometry.attributes.position.array;
         for(let i=0; i<pos.length; i+=3) {
             pos[i+1] -= 25; // High speed falling
-            if(pos[i+1] < -500) pos[i+1] = 1000;
+            pos[i] -= 2;   // 🌪️ WIND SLANT
+            if(pos[i+1] < -500) {
+                pos[i+1] = 1000;
+                pos[i] = (Math.random()-0.5)*2000;
+            }
         }
         rainSystem.geometry.attributes.position.needsUpdate = true;
-        // Wet Floor Reflection
-        floor.material.shininess = 60;
+        
+        // Wetness Build-up
+        wetness = Math.min(1, wetness + 0.002);
     } else {
-        floor.material.shininess = 10;
+        // Drying Process
+        wetness = Math.max(0, wetness - 0.001);
         if (rainSystem) rainSystem.visible = false;
+    }
+
+    // Apply Wetness to Floor
+    if (floor) {
+        floor.material.shininess = 10 + wetness * 80;
+        floor.material.specular.setRGB(wetness * 0.5, wetness * 0.5, wetness * 0.5);
     }
 
     // Dynamic Weather Toggle (Random chance to start/stop rain)
@@ -473,6 +516,11 @@ function playSound(type) {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
 
+  // 📱 HAPTIC FEEDBACK (Vibration for Mobile)
+  if (['player_hit', 'explosion', 'grenade_throw'].includes(type) && navigator.vibrate) {
+      navigator.vibrate(type === 'player_hit' ? 50 : 100);
+  }
+
   switch(type) {
     case 'shoot_auto': {
       const osc = audioCtx.createOscillator();
@@ -565,7 +613,7 @@ function playSound(type) {
 // GAME CONSTANTS & STATE
 // ══════════════════════════════════════════════════════
 const player = {
-  x: 0, y: 16, z: 0,
+  x: 0, y: 20, z: 0,
   vy: 0, isGrounded: true,
   r: 16, speed: 4.5, baseSpeed: 4.5,
   hp: 100, maxHp: 100,
@@ -603,19 +651,41 @@ let camPitch = 0.2;
 
 const ARENA_SIZE = 16000;
 
-function checkBuildingCollision(x, z, r) {
+function checkWorldCollision(x, z, r, isVehicle = false) {
+    // 1. Buildings (AABB Collision)
     for (const b of buildings) {
         const distX = Math.abs(x - b.x);
         const distZ = Math.abs(z - b.z);
-
         if (distX > (b.w + r)) continue;
         if (distZ > (b.d + r)) continue;
-
         if (distX <= b.w || distZ <= b.d) return true;
-
         const cornerDist = Math.pow(distX - b.w, 2) + Math.pow(distZ - b.d, 2);
         if (cornerDist <= r * r) return true;
     }
+
+    // 2. Vehicles (Circle Collision - skip check if we ARE a vehicle)
+    if (!isVehicle) {
+        for (const car of policeCars) {
+            if (playerDriving && currentCar === car) continue; // Don't collide with own car
+            const d = Math.hypot(x - car.x, z - car.z);
+            if (d < r + car.r - 5) return true; // Offset for better feel
+        }
+    }
+
+    // 3. Street Lights (Small Pillars)
+    for (const lamp of streetLights) {
+        const d = Math.hypot(x - lamp.x, z - lamp.z);
+        if (d < r + 10) return true; // 10 radius for lamp post
+    }
+
+    // 4. Characters (Optional/Soft - only for player)
+    if (!isVehicle) {
+        for (const z of zombies) {
+            const d = Math.hypot(x - z.x, z - z.z);
+            if (d < r + z.r - 2) return true;
+        }
+    }
+
     return false;
 }
 
@@ -631,11 +701,9 @@ document.addEventListener('keydown', e => {
   if(e.code === 'Escape') togglePause();
   if(state !== 'playing' || paused) return;
   if(e.code === 'Tab') { 
-      const w = player.weapon;
-      player.weapon = w === 'auto' ? 'shotgun' : w === 'shotgun' ? 'sniper' : w === 'sniper' ? 'rocket' : 'auto'; 
-      updateWeaponUI(); 
-      updatePlayerWeaponMesh();
+      switchWeapon();
   }
+
   if(e.code === 'KeyR') startReload();
   if(e.code === 'KeyQ') tryKnife();
   if(e.code === 'KeyG') throwGrenade();
@@ -647,14 +715,17 @@ document.addEventListener('keyup', e => { keys[e.code] = false; });
 window.addEventListener('mousemove', e => {
     if (document.pointerLockElement === document.body) {
         camYaw -= e.movementX * 0.003;
-        camPitch = Math.max(-0.5, Math.min(1.2, camPitch - e.movementY * 0.003));
+        camPitch = Math.max(-0.2, Math.min(1.2, camPitch - e.movementY * 0.003));
     } else {
         mouseX = (e.clientX / window.innerWidth) * 2 - 1;
         mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
     }
 });
-window.addEventListener('mousedown', () => { 
+window.addEventListener('mousedown', (e) => { 
     initAudio(); 
+    // Guard: Prevent locking mouse if clicking on UI
+    if (e.target.closest('#shopOverlay') || e.target.closest('#settingsOverlay') || e.target.closest('.m-btn-small') || e.target.closest('.m-btn')) return;
+    
     mouseDown = true; 
     if (!('ontouchstart' in window) && state === 'playing') document.body.requestPointerLock();
 });
@@ -677,6 +748,12 @@ function initMobileControls() {
     document.querySelectorAll('.joystick-container').forEach(el => el.style.display = 'block');
     document.getElementById('mobile-buttons').style.display = 'flex';
     if(document.getElementById('controls-hint')) document.getElementById('controls-hint').style.display = 'none';
+    
+    // Load Saved Joystick Scale
+    const savedScale = localStorage.getItem('crimeCityJoyScale') || '1.0';
+    document.documentElement.style.setProperty('--joy-scale', savedScale);
+    const slider = document.getElementById('joySizeSlider');
+    if (slider) slider.value = savedScale;
     
     const setupJoystick = (stickId, knobId, joyState) => {
         const stick = document.getElementById(stickId);
@@ -737,7 +814,63 @@ function initMobileControls() {
     };
     
     setupJoystick('stick-move', 'knob-move', joyMove);
-    setupJoystick('stick-aim', 'knob-aim', joyAim);
+    
+    // 📱 RIGHT-SIDE SWIPE LOOK SYSTEM (Professional Mobile Controls)
+    let touchLookId = null;
+    let lastTouchX = 0, lastTouchY = 0;
+
+    window.addEventListener('touchstart', e => {
+        for(let i=0; i<e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            
+            // Guard: Ignore touches on UI overlays
+            if (e.target.closest('#shopOverlay') || e.target.closest('#settingsOverlay') || e.target.closest('#minimap')) continue;
+
+            // Right half of screen AND not on a button
+            if (t.clientX > window.innerWidth / 2 && !e.target.closest('.m-btn') && !e.target.closest('.m-btn-small')) {
+                touchLookId = t.identifier;
+                lastTouchX = t.clientX;
+                lastTouchY = t.clientY;
+                mouseDown = true;
+                joyAim.active = true;
+                initAudio();
+            }
+        }
+    }, {passive: false});
+
+    window.addEventListener('touchmove', e => {
+        if (touchLookId === null) return;
+        for(let i=0; i<e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (t.identifier === touchLookId) {
+                const dx = t.clientX - lastTouchX;
+                const dy = t.clientY - lastTouchY;
+                
+                const sens = 0.006;
+                camYaw -= dx * sens;
+                camPitch = Math.max(-0.3, Math.min(0.8, camPitch - dy * sens));
+                
+                lastTouchX = t.clientX;
+                lastTouchY = t.clientY;
+            }
+        }
+    }, {passive: false});
+
+
+    const endLook = e => {
+        for(let i=0; i<e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (t.identifier === touchLookId) {
+                touchLookId = null;
+                mouseDown = false;
+                joyAim.active = false;
+            }
+        }
+    };
+
+    window.addEventListener('touchend', endLook);
+    window.addEventListener('touchcancel', endLook);
+
     
     const bindBtn = (id, action) => {
         const btn = document.getElementById(id);
@@ -749,17 +882,20 @@ function initMobileControls() {
     bindBtn('btn-reload', startReload);
     bindBtn('btn-knife', tryKnife);
     bindBtn('btn-gren', throwGrenade);
-    bindBtn('btn-switch', () => { 
-        const w = player.weapon;
-        const cycle = ['auto', 'shotgun', 'sniper', 'rocket', 'katana', 'flame', 'minigun'];
-        let idx = cycle.indexOf(w);
-        player.weapon = cycle[(idx + 1) % cycle.length];
-        updateWeaponUI(); 
-        updatePlayerWeaponMesh();
-
-    });
+    bindBtn('btn-switch', switchWeapon);
     bindBtn('btn-drive', toggleVehicle);
 }
+
+function switchWeapon() {
+    const w = player.weapon;
+    const cycle = ['auto', 'shotgun', 'sniper', 'rocket', 'katana', 'flame', 'minigun'];
+    let idx = cycle.indexOf(w);
+    player.weapon = cycle[(idx + 1) % cycle.length];
+    updateWeaponUI(); 
+    updatePlayerWeaponMesh();
+    showMsg("WEAPON: " + player.weapon.toUpperCase());
+}
+
 window.addEventListener('load', initMobileControls);
 
 // ══════════════════════════════════════════════════════
@@ -843,9 +979,9 @@ function update(time) {
       const nx = currentCar.x + vx;
       const nz = currentCar.z + vz;
       
-      if (!checkBuildingCollision(nx, currentCar.z, currentCar.r)) currentCar.x = nx;
+      if (!checkWorldCollision(nx, currentCar.z, currentCar.r, true)) currentCar.x = nx;
       else carSpeed *= 0.5;
-      if (!checkBuildingCollision(currentCar.x, nz, currentCar.r)) currentCar.z = nz;
+      if (!checkWorldCollision(currentCar.x, nz, currentCar.r, true)) currentCar.z = nz;
       else carSpeed *= 0.5;
 
       player.x = currentCar.x;
@@ -888,8 +1024,8 @@ function update(time) {
       const nx = Math.max(-ARENA_SIZE/2, Math.min(ARENA_SIZE/2, player.x + worldMoveX * player.speed * speedMult));
       const nz = Math.max(-ARENA_SIZE/2, Math.min(ARENA_SIZE/2, player.z + worldMoveZ * player.speed * speedMult));
       
-      if (!checkBuildingCollision(nx, player.z, player.r)) player.x = nx;
-      if (!checkBuildingCollision(player.x, nz, player.r)) player.z = nz;
+      if (!checkWorldCollision(nx, player.z, player.r)) player.x = nx;
+      if (!checkWorldCollision(player.x, nz, player.r)) player.z = nz;
 
       // Jump & Gravity
       if ((keys['Space'] || jumpRequest) && player.isGrounded) {
@@ -897,16 +1033,14 @@ function update(time) {
       }
       if (!player.isGrounded) {
           player.vy -= 0.6; player.y += player.vy;
-          if (player.y <= 16) { player.y = 16; player.vy = 0; player.isGrounded = true; }
+          if (player.y <= 20) { player.y = 20; player.vy = 0; player.isGrounded = true; }
       }
 
       // Player Orientation
-        if (joyAim.active && (Math.abs(joyAim.dx) > 0.1 || Math.abs(joyAim.dy) > 0.1)) {
-            camYaw -= joyAim.dx * 0.05;
-            player.angle = camYaw;
-        } else if (document.pointerLockElement === document.body) {
+        if (joyAim.active || document.pointerLockElement === document.body) {
             player.angle = camYaw;
         }
+
 
         // 🚁 HELI AUTO-AIM (Mobile Experience Fix)
         if (helis.length > 0 && joyAim.active) {
@@ -927,21 +1061,32 @@ function update(time) {
 
 
   // Update Visuals
-  playerMesh.position.set(player.x, player.y - 16, player.z);
+  playerMesh.position.set(player.x, player.y - 20, player.z);
   playerMesh.rotation.y = player.angle;
   if (!playerDriving && (mdx || mdy)) animateHumanoid(playerMesh, (keys['ShiftLeft'] || sprintActive) ? 2.5 : 1.5);
 
   // Camera Follow
   const targetX = player.x, targetZ = player.z;
+  
+  let shakeOffsetX = 0, shakeOffsetY = 0, shakeOffsetZ = 0;
+  if (shakeTime > 0) {
+      shakeTime--;
+      shakeOffsetX = (Math.random() - 0.5) * shakeIntensity;
+      shakeOffsetY = (Math.random() - 0.5) * shakeIntensity;
+      shakeOffsetZ = (Math.random() - 0.5) * shakeIntensity;
+      shakeIntensity *= 0.9;
+  }
+
   if(viewMode === 'tactical') {
-      camera.position.lerp(new THREE.Vector3(targetX, 800, targetZ + 400), 0.1);
-      camera.lookAt(targetX, 0, targetZ);
+      camera.position.lerp(new THREE.Vector3(targetX + shakeOffsetX, 800 + shakeOffsetY, targetZ + 400 + shakeOffsetZ), 0.1);
+      camera.lookAt(targetX + shakeOffsetX, 0 + shakeOffsetY, targetZ + shakeOffsetZ);
   } else {
-      const tx = targetX - Math.sin(camYaw) * zoomDist * Math.cos(camPitch);
-      const tz = targetZ - Math.cos(camYaw) * zoomDist * Math.cos(camPitch);
-      const ty = (playerDriving ? 150 : 100) + Math.sin(camPitch) * zoomDist + 150; 
+      const tx = targetX - Math.sin(camYaw) * zoomDist * Math.cos(camPitch) + shakeOffsetX;
+      const tz = targetZ - Math.cos(camYaw) * zoomDist * Math.cos(camPitch) + shakeOffsetZ;
+      let ty = (playerDriving ? 150 : 100) + Math.sin(camPitch) * zoomDist + 150 + shakeOffsetY; 
+      ty = Math.max(40, ty); // Prevent camera from going underground
       camera.position.lerp(new THREE.Vector3(tx, ty, tz), 0.1); 
-      camera.lookAt(targetX, playerDriving ? 40 : 100, targetZ);
+      camera.lookAt(targetX + shakeOffsetX, (playerDriving ? 40 : 100) + shakeOffsetY, targetZ + shakeOffsetZ);
   }
 
   // Update Entities
@@ -993,6 +1138,7 @@ function shoot() {
         player.shotgunAmmo--;
         player.shootCooldown = 25;
         playSound('shoot_shotgun');
+        triggerShake(5, 15);
     } else if(player.weapon === 'sniper') {
         if(player.sniperAmmo <= 0 || player.sniperReloading > 0) return;
         createBullet(player.x, player.z, player.angle, 40, 150, true);
@@ -1005,6 +1151,7 @@ function shoot() {
         player.rocketAmmo--;
         player.shootCooldown = 60;
         playSound('grenade_throw');
+        triggerShake(10, 20);
     } else if(player.weapon === 'katana') {
         // Melee Attack: Sweep 150 degree arc
         player.shootCooldown = 20;
@@ -1052,8 +1199,13 @@ function shoot() {
 
     updateWeaponUI();
     updatePlayerWeaponMesh();
-    if(getCurrentAmmo() <= 0 && player.weapon !== 'rocket') startReload();
+    
+    // 📱 MOBILE UX: Auto-Reload when empty
+    if(getCurrentAmmo() <= 0 && player.weapon !== 'rocket' && player.weapon !== 'katana') {
+        startReload();
+    }
 }
+
 
 function updatePlayerWeaponMesh() {
     if (!playerGunMesh) return;
@@ -1205,13 +1357,15 @@ function updateBullets() {
                 player.invincible = 30;
                 hit = true;
                 playSound('player_hit');
+                if (navigator.vibrate) navigator.vibrate(50); // Haptic Hit
                 if (player.hp <= 0) endGame();
             }
         }
 
 
 
-        const hitBuilding = checkBuildingCollision(bm.data.x, bm.data.z, 2);
+
+        const hitBuilding = checkWorldCollision(bm.data.x, bm.data.z, 2);
         if(bm.data.life <= 0 || hit || hitBuilding || Math.abs(bm.data.x) > ARENA_SIZE/2 || Math.abs(bm.data.z) > ARENA_SIZE/2) {
             if (bm.data.isRocket || (hitBuilding && !hit)) {
                 spawnParticles(bm.data.x, 16, bm.data.z, 0xaaaa00, 10); // Sparks
@@ -1256,8 +1410,8 @@ function updateZombies() {
             const ang = Math.atan2(player.x - z.x, player.z - z.z);
             const nx = z.x + Math.sin(ang) * z.speed;
             const nz = z.z + Math.cos(ang) * z.speed;
-            if (!checkBuildingCollision(nx, z.z, z.r)) z.x = nx;
-            if (!checkBuildingCollision(z.x, nz, z.r)) z.z = nz;
+            if (!checkWorldCollision(nx, z.z, z.r)) z.x = nx;
+            if (!checkWorldCollision(z.x, nz, z.r)) z.z = nz;
             z.angle = ang;
         }
         
@@ -1278,6 +1432,7 @@ function updateZombies() {
             if(dist < player.r + z.r) {
                 player.hp -= 10;
                 player.invincible = 30;
+                triggerShake(10, 20);
                 playSound('player_hit');
                 if(player.hp <= 0) endGame();
             }
@@ -1305,6 +1460,9 @@ function updateGrenades() {
 
 function explodeGrenade(x, z) {
     playSound('grenade_explode');
+    const distToExp = Math.hypot(player.x - x, player.z - z);
+    if (distToExp < 1500) triggerShake(20, Math.max(5, 40 - distToExp/30));
+
     const radius = 200;
     zombies.forEach(zombie => {
         const d = Math.hypot(x - zombie.x, z - zombie.z);
@@ -1383,6 +1541,7 @@ function dieZombie(z) {
         kills++;
         score += 100;
         playSound('zombie_die');
+        addBloodDecal(z.x, z.z);
         if(Math.random() > 0.8) spawnPowerup(z.x, z.z);
     }
 }
@@ -1407,7 +1566,7 @@ function createInfestedZones(count) {
         const zx = (Math.random()-0.5)*ARENA_SIZE;
         const zz = (Math.random()-0.5)*ARENA_SIZE;
         if (Math.abs(zx) < 1000 && Math.abs(zz) < 1000) continue; // Clear from player start
-        if (checkBuildingCollision(zx, zz, 200)) continue;
+        if (checkWorldCollision(zx, zz, 200)) continue;
 
         const clusterSize = 5 + Math.floor(Math.random()*8);
         for(let j=0; j<clusterSize; j++) {
@@ -1429,7 +1588,7 @@ function spawnZombie(type = 'normal', fixedX = null, fixedZ = null) {
         nz = player.z + Math.cos(angle) * dist;
     }
     
-    if (checkBuildingCollision(nx, nz, 20)) return fixedX ? null : spawnZombie(type);
+    if (checkWorldCollision(nx, nz, 20)) return fixedX ? null : spawnZombie(type);
 
     const z = {
         x: nx, z: nz, r: 16, hp: 100,
@@ -1461,17 +1620,30 @@ function updateHUD() {
 }
 
 function updateWeaponUI() {
-    document.getElementById('weaponDisplay').innerText = player.weapon.toUpperCase();
+    const w = player.weapon;
+    document.getElementById('weaponDisplay').innerText = w.toUpperCase();
     const bar = document.getElementById('ammoBar');
     bar.innerHTML = '';
+    
+    // Katana has infinite use/no ammo display
+    if (w === 'katana') {
+        bar.innerHTML = '<span style="color:var(--green);font-size:12px">READY</span>';
+        return;
+    }
+    
     const ammo = getCurrentAmmo();
     const max = getCurrentMaxAmmo();
+    if (max === Infinity || isNaN(max)) {
+        bar.innerHTML = '∞';
+        return;
+    }
     for(let i=0; i<max; i++) {
         const pip = document.createElement('div');
         pip.className = 'ammo-pip' + (i >= ammo ? ' empty' : '');
         bar.appendChild(pip);
     }
 }
+
 
 function updateGrenadeUI() {
     const pips = document.getElementById('grenadePips');
@@ -1510,7 +1682,8 @@ function startReload() {
 }
 
 function updateCooldowns() {
-    ['auto', 'shotgun', 'sniper'].forEach(w => {
+    const armory = ['auto', 'shotgun', 'sniper', 'rocket', 'flame', 'minigun'];
+    armory.forEach(w => {
         if(player[w + 'Reloading'] > 0) {
             player[w + 'Reloading']--;
             if(player[w + 'Reloading'] === 0) {
@@ -1521,13 +1694,53 @@ function updateCooldowns() {
     });
 }
 
+
+function triggerShake(frames, intensity) {
+    shakeTime = frames;
+    shakeIntensity = intensity;
+}
+
+function addBloodDecal(x, z) {
+    const size = 20 + Math.random() * 20;
+    const geo = new THREE.PlaneGeometry(size, size);
+    const mat = new THREE.MeshBasicMaterial({ 
+        color: 0x660000, 
+        transparent: true, 
+        opacity: 0.6 + Math.random() * 0.4,
+        depthWrite: false
+    });
+    const decal = new THREE.Mesh(geo, mat);
+    decal.position.set(x, 2, z); 
+    decal.rotation.x = -Math.PI / 2;
+    decal.rotation.z = Math.random() * Math.PI * 2;
+    scene.add(decal);
+    bloodDecals.push(decal);
+    if (bloodDecals.length > 50) {
+        const old = bloodDecals.shift();
+        scene.remove(old);
+    }
+}
+
 function endGame() {
-    state = 'over';
+    state = 'wasted';
     if(spawnInterval) clearInterval(spawnInterval);
-    document.getElementById('overlay').style.display = 'flex';
-    document.getElementById('ovScore').innerText = "INTEL: " + score;
-    document.getElementById('ovScore').style.display = 'block';
-    document.getElementById('startBtn').innerText = '▶ RESTART';
+    
+    // Slow-mo and red effect
+    scene.background = new THREE.Color(0xaa0000);
+    scene.fog.color = new THREE.Color(0xaa0000);
+    lights.ambient.intensity = 5.0; // bright red ambient shift
+    
+    document.getElementById('wastedText').classList.add('show');
+    triggerShake(40, 30); // Big shake on death
+
+    setTimeout(() => {
+        document.getElementById('overlay').style.display = 'flex';
+        document.getElementById('ovScore').innerText = "INTEL: " + score;
+        document.getElementById('ovScore').style.display = 'block';
+        document.getElementById('startBtn').innerText = '▶ RESTART';
+        document.getElementById('wastedText').classList.remove('show');
+        state = 'over';
+    }, 3500);
 }
 
 // ══════════════════════════════════════════════════════
@@ -1559,9 +1772,14 @@ document.getElementById('startBtn').addEventListener('click', () => {
             grenades: player.maxGrenades
         });
         score = 0; wave = 0; kills = 0;
+        wantedLevel = 0;
+        updateWantedStars();
         
         zombies.forEach(z => scene.remove(zombieMeshes.get(z)));
         zombies = []; zombieMeshes.clear();
+        policeCars.forEach(c => scene.remove(policeMeshes.get(c)));
+        policeCars = []; policeMeshes.clear();
+        
         bulletMeshes.forEach(b => scene.remove(b.mesh));
         bulletMeshes = [];
         powerups.forEach(p => scene.remove(p.mesh));
@@ -1570,7 +1788,7 @@ document.getElementById('startBtn').addEventListener('click', () => {
         grenades = [];
         if(spawnInterval) clearInterval(spawnInterval);
         
-        playerMesh.position.set(player.x, 16, player.z);
+        playerMesh.position.set(player.x, 20, player.z);
     }
     
     startWave(1);
@@ -1656,7 +1874,7 @@ function spawnVehicle(type = 'police', nx = null, nz = null) {
         if (Math.hypot(nx - player.x, nz - player.z) < 1000) return spawnVehicle(type);
     }
     
-    if (checkBuildingCollision(nx, nz, 100)) return spawnVehicle(type);
+    if (checkWorldCollision(nx, nz, 100)) return spawnVehicle(type);
 
     const car = { 
         x: nx, z: nz, r: 60, hp: type === 'truck' ? 500 : 200, 
@@ -1824,28 +2042,43 @@ function buyItem(type) {
     const prices = { health: 500, ammo: 300, grenade: 200, shield: 1000, rocket_launcher: 2500, rocket_ammo: 800 };
     if (score >= prices[type]) {
         score -= prices[type];
-        if (type === 'health') player.hp = Math.min(player.maxHp, player.hp + 50);
+        if (type === 'health') {
+            player.hp = Math.min(player.maxHp, player.hp + 50);
+            showMsg("HEALTH RESTORED!");
+        }
         if (type === 'ammo') {
             player.autoAmmo = player.autoMaxAmmo;
             player.shotgunAmmo = player.shotgunMaxAmmo;
             player.sniperAmmo = player.sniperMaxAmmo;
+            showMsg("AMMO REPLENISHED!");
         }
-        if (type === 'grenade') player.grenades = Math.min(player.maxGrenades, player.grenades + 1);
-        if (type === 'shield') player.shield = 60 * 15; // 15 seconds
+        if (type === 'grenade') {
+            player.grenades = Math.min(player.maxGrenades, player.grenades + 1);
+            showMsg("+1 GRENADE ACQUIRED!");
+        }
+        if (type === 'shield') {
+            player.invincible = 900; // 15 seconds at 60fps
+            showMsg("STIM PACK ACTIVE (15S)");
+        }
         if (type === 'rocket_launcher') {
+            player.hasRocket = true;
             player.rocketAmmo = player.rocketMaxAmmo;
-            showMsg("ROCKET LAUNCHER UNLOCKED!");
+            showMsg("RPG-7 UNLOCKED!");
         }
         if (type === 'rocket_ammo') {
             player.rocketAmmo = Math.min(player.rocketMaxAmmo, player.rocketAmmo + 2);
+            showMsg("+2 ROCKETS ADDED!");
         }
         
         playSound('powerup');
         updateHUD();
+        updateWeaponUI();
+        updateGrenadeUI();
     } else {
-        showMsg("NOT ENOUGH INTEL");
+        showMsg("NOT ENOUGH CASH!");
     }
 }
+
 
 function dieNPC(n) {
     const idx = npcs.indexOf(n);
@@ -1855,20 +2088,56 @@ function dieNPC(n) {
         npcMeshes.delete(n);
         wantedLevel = Math.min(5, wantedLevel + 1);
         score += 200;
-        playSound('player_hit');
+        playSound('player_hit'); // maybe another sound later
+        addBloodDecal(n.x, n.z);
         spawnNPC(); // Maintain population
     }
 }
 
-document.getElementById('shopBtn').addEventListener('click', openShop);
+document.getElementById('shopBtn').addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    openShop();
+});
 document.getElementById('shopBtn').innerHTML = '🛒 BLACK MARKET / SHOW';
-document.getElementById('minimap').addEventListener('click', (e) => {
+document.getElementById('minimap').addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
     e.currentTarget.classList.toggle('large');
 });
-document.getElementById('closeShop').addEventListener('click', () => { 
-    paused = false; 
+document.getElementById('closeShop').addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
     document.getElementById('shopOverlay').style.display = 'none'; 
 });
+
+// SETTINGS LOGIC
+document.getElementById('settingsBtn').addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    document.getElementById('settingsOverlay').style.display = 'flex';
+});
+document.getElementById('closeSettings').addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    document.getElementById('settingsOverlay').style.display = 'none';
+});
+document.getElementById('joySizeSlider').addEventListener('input', (e) => {
+    const scale = e.target.value;
+    document.documentElement.style.setProperty('--joy-scale', scale);
+    localStorage.setItem('crimeCityJoyScale', scale);
+});
+
+document.querySelectorAll('.shop-item').forEach(item => {
+    item.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const type = item.getAttribute('data-type');
+        buyItem(type);
+    });
+});
+
+
 document.getElementById('btn-jump').ontouchstart = (e) => { e.preventDefault(); jumpRequest = true; };
 document.getElementById('btn-sprint').ontouchstart = (e) => { e.preventDefault(); sprintActive = true; };
 document.getElementById('btn-sprint').ontouchend = (e) => { e.preventDefault(); sprintActive = false; };
@@ -1934,7 +2203,7 @@ function spawnNPC() {
     const nx = (Math.random() - 0.5) * ARENA_SIZE;
     const nz = (Math.random() - 0.5) * ARENA_SIZE;
     
-    if (checkBuildingCollision(nx, nz, 20)) return spawnNPC();
+    if (checkWorldCollision(nx, nz, 20)) return spawnNPC();
 
     const npc = {
         x: nx, z: nz, r: 16, hp: 100,
@@ -1987,7 +2256,7 @@ function updateNPCs() {
         const nx = n.x + Math.sin(n.angle) * n.speed;
         const nz = n.z + Math.cos(n.angle) * n.speed;
 
-        if (!checkBuildingCollision(nx, nz, n.r) && Math.abs(nx) < ARENA_SIZE/2 && Math.abs(nz) < ARENA_SIZE/2) {
+        if (!checkWorldCollision(nx, nz, n.r) && Math.abs(nx) < ARENA_SIZE/2 && Math.abs(nz) < ARENA_SIZE/2) {
             n.x = nx; n.z = nz;
         } else {
             n.angle += Math.PI; // Bounce
